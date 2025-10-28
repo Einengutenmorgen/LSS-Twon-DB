@@ -53,7 +53,7 @@ erDiagram
     Users ||--|{ Follows : "is followed by (as followee)"
     Users ||--|{ Likes : "likes"
     Tweets ||--|{ Likes : "is liked by"
-´´´
+```
 
 ### **Table Descriptions**
 

@@ -2,6 +2,8 @@ import psycopg2
 import sys
 from psycopg2.extras import RealDictCursor
 from contextlib import contextmanager
+from datetime import datetime
+
 
 # --- Import Core Logic ---
 # We import the query class from your existing script to avoid duplicating code.
@@ -101,6 +103,57 @@ def test_queries(tester, failed_tests):
                 f"Tweet {tweet['tweet_id']} by invalid author {tweet['author_id']}"
         
         print(f"   -> [PASS] {test_name} (All {len(feed)} tweets in feed are from valid authors)")
+    except AssertionError as e:
+        print(f"   -> [FAIL] {test_name}: {e}")
+        failed_tests.append(test_name)
+    except Exception as e:
+        print(f"   -> [FAIL] {test_name}: Error {e}")
+        failed_tests.append(test_name)
+
+    # --- Test 3.3: get_user_feed_until_between ---
+    test_name = "Query: get_user_feed_until_between"
+    try:
+        user_id_to_check = 818934188
+        startdate_str = "2020-01-01T00:00:00Z"
+        enddate_str = "2020-12-31T23:59:59Z"
+
+        # Convert to datetime for proper comparison
+        startdate = datetime.fromisoformat(startdate_str.replace("Z", "+00:00"))
+        enddate = datetime.fromisoformat(enddate_str.replace("Z", "+00:00"))
+
+        feed_between = tester.get_user_feed_until_between(
+            user_id=user_id_to_check,
+            startdate=startdate,
+            enddate=enddate,
+            limit=50
+        )
+
+        if not feed_between:
+            print(f"   -> [SKIP] {test_name}: No tweets found between {startdate_str} and {enddate_str}.")
+            return
+
+        # Ensure all tweets are within range
+        for tweet in feed_between:
+            created = tweet["created_at"]
+            assert startdate <= created <= enddate, \
+                f"Tweet {tweet['tweet_id']} created_at={created} outside range."
+
+        print(f"   -> [PASS] {test_name} (All {len(feed_between)} tweets within {startdate_str}–{enddate_str})")
+
+        # Test without startdate
+        feed_until = tester.get_user_feed_until_between(
+            user_id=user_id_to_check,
+            enddate=enddate,
+            limit=20
+        )
+
+        if feed_until:
+            for tweet in feed_until:
+                created = tweet["created_at"]
+                assert created <= enddate, \
+                    f"Tweet {tweet['tweet_id']} created_at={created} after enddate={enddate_str}"
+            print(f"   -> [PASS] {test_name} (Optional startdate None handled correctly, {len(feed_until)} tweets)")
+
     except AssertionError as e:
         print(f"   -> [FAIL] {test_name}: {e}")
         failed_tests.append(test_name)

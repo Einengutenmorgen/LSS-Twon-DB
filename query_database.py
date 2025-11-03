@@ -10,12 +10,11 @@ import datetime # Added for date testing
 
 def get_db_connection_details():
     """Gets PostgreSQL connection details from the user."""
-    print("--- Enter PostgreSQL Connection Details for Testing ---")
-    dbname = input("Database Name: ") or "LSS_twon"
-    user = input("User: ") or "christophhau"
-    password = input("Password: ")
-    host = input("Host (default: localhost): ") or "localhost"
-    port = input("Port (default: 5432): ") or "5432"
+    dbname = "LSS_twon"
+    user =  "christophhau"
+    password = ""
+    host =  "localhost"
+    port =  "5432"
     return {
         "dbname": dbname,
         "user": user,
@@ -206,6 +205,68 @@ class TwitterDBQuery:
         with self._get_cursor() as cur:
             cur.execute(query, (user_id,))
             return cur.fetchall()
+    
+    def get_user_feed_until_between(self, user_id, enddate, startdate=None, limit=100):
+        """
+        Reconstructs a user's feed composed of tweets from their followees
+        and their own tweets, created between a start and end date.
+        If startdate is not provided, all tweets up to enddate are included.
+
+        :param user_id: The ID of the user whose feed to reconstruct.
+        :param enddate: The latest creation timestamp to include.
+        :param startdate: The earliest creation timestamp to include (optional).
+        :param limit: The maximum number of tweets to return.
+        :return: A list of post dictionaries.
+        """
+        # Base query (same as before, but condition depends on startdate)
+        query = """
+        SELECT
+            t.tweet_id,
+            t.author_id,
+            u.username AS author_username,
+            t.full_text,
+            t.created_at,
+            t.retweet_of_user_id,
+            ru.username AS retweet_of_username
+        FROM
+            Tweets t
+        JOIN
+            Users u ON t.author_id = u.user_id
+        LEFT JOIN
+            Users ru ON t.retweet_of_user_id = ru.user_id
+        WHERE
+            t.author_id IN (
+                SELECT followee_id
+                FROM Follows
+                WHERE follower_id = %s
+
+                UNION
+
+                SELECT %s
+            )
+        """
+
+        # Apply date filtering logic dynamically
+        params = [user_id, user_id]
+
+        if startdate:
+            query += " AND t.created_at BETWEEN %s AND %s"
+            params.extend([startdate, enddate])
+        else:
+            query += " AND t.created_at <= %s"
+            params.append(enddate)
+
+        query += """
+        ORDER BY
+            t.created_at DESC
+        LIMIT %s;
+        """
+        params.append(limit)
+
+        with self._get_cursor() as cur:
+            cur.execute(query, tuple(params))
+            return cur.fetchall()
+
 
     @staticmethod
     def _format_post(post):

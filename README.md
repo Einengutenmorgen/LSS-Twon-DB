@@ -1,20 +1,22 @@
 # LSS-Twon-DB
-# **Social Feed Reconstruction Database**
+# **Social Feed Reconstruction Database (SQLite)**
 
 ## **Overview**
 
-This project contains a set of Python scripts to build, populate, and query a PostgreSQL database that models a basic social media feed. The primary goal is to reconstruct a user's feed based on their social graph (follows) and all known tweets.
+This project contains Python scripts to build, populate, and query an SQLite database that models a basic social media feed. The primary goal is to reconstruct a user's feed based on their social graph (follows) and all known tweets.
+
+**Key advantages of SQLite version:**
+- No separate database server required
+- Single file database (portable and easy to backup)
+- Built-in Python support (no external DB driver needed)
+- Simplified setup and deployment
 
 ## **Prerequisites**
 
-1. Python 3.8+  
-2. A running PostgreSQL server  
-3. Python dependencies. Create a requirements.txt file:  
-   pandas  
-   numpy  
-   psycopg2-binary
-
-   Install with: pip install \-r requirements.txt
+1. Python 3.8+
+2. Python dependencies (install with: `pip install -r requirements.txt`):
+   - pandas
+   - numpy
 
 ## **Database Schema**
 
@@ -23,28 +25,28 @@ This project contains a set of Python scripts to build, populate, and query a Po
 ```mermaid
 erDiagram
     Users {
-        BIGINT user_id PK
+        INTEGER user_id PK
         TEXT username
     }
 
     Tweets {
-        BIGINT tweet_id PK
-        BIGINT author_id FK
+        INTEGER tweet_id PK
+        INTEGER author_id FK
         TEXT full_text
-        TIMESTAMPTZ created_at
-        BIGINT retweet_of_user_id FK
-        TIMESTAMPTZ collected_at
+        TEXT created_at
+        INTEGER retweet_of_user_id FK
+        TEXT collected_at
     }
 
     Follows {
-        BIGINT follower_id PK, FK
-        BIGINT followee_id PK, FK
+        INTEGER follower_id PK, FK
+        INTEGER followee_id PK, FK
     }
 
     Likes {
-        BIGINT user_id PK, FK
-        BIGINT tweet_id PK, FK
-        TIMESTAMPTZ collected_at
+        INTEGER user_id PK, FK
+        INTEGER tweet_id PK, FK
+        TEXT collected_at
     }
 
     Users ||--o{ Tweets : "is author of"
@@ -57,48 +59,105 @@ erDiagram
 
 ### **Table Descriptions**
 
-* **Users**: Master table for all user profiles. user\_id is the primary key.  
-* **Tweets**: All known tweets and retweets. author\_id is the user who created the tweet (or retweeted it). retweet\_of\_user\_id is a foreign key to Users pointing to the original author.  
-* **Follows**: Associative table for the many-to-many "follow" relationship. follower\_id is the user *doing* the following, and followee\_id is the user *being* followed.  
-* **Likes**: Associative table for the many-to-many "like" relationship. user\_id is the user who liked the tweet\_id.
+* **Users**: Master table for all user profiles. `user_id` is the primary key.
+* **Tweets**: All known tweets and retweets. `author_id` is the user who created the tweet. `retweet_of_user_id` points to the original author for retweets.
+* **Follows**: Associative table for follow relationships. `follower_id` follows `followee_id`.
+* **Likes**: Associative table for like relationships. `user_id` liked `tweet_id`.
+
+**Note:** Dates are stored as TEXT in ISO 8601 format (e.g., `2024-07-22T00:00:00+00:00`).
 
 ## **Project Scripts & Workflow**
 
-This project is intended to be run in the following order:
+Run the scripts in the following order:
 
-### **1\. build\_database.py**
+### **1. build_database.py**
 
-* **Purpose**: Connects to the PostgreSQL server, creates the specified database (if it doesn't exist), and executes the CREATE TABLE commands for the schema.  
-* **Note**: It will DROP all tables first to ensure a clean build.  
-* **Usage**: python3 build\_database.py
+* **Purpose**: Creates the SQLite database file and table schema.
+* **Note**: Drops existing tables to ensure a clean build.
+* **Usage**: `python3 build_database.py`
+* **Output**: Creates `LSS_twon.db` in the current directory.
 
-### **2\. populate\_database.py**
+### **2. populate_database.py**
 
-* **Purpose**: Reads data from the source CSV files and populates the database tables. It handles data aggregation from multiple files and uses ON CONFLICT DO NOTHING for idempotent writes.  
-* **Note**: File paths are currently hardcoded in get\_file\_paths(). You will need to edit these paths to point to your local CSVs.  
-* **Usage**: python3 populate\_database.py
+* **Purpose**: Reads CSV files and populates database tables.
+* **Note**: File paths are hardcoded. Edit `get_file_paths()` to point to your CSVs.
+* **Usage**: `python3 populate_database.py`
 
-### **3\. query\_database.py**
+### **3. query_database.py**
 
-* **Purpose**: Contains the core TwitterDBQuery class, which abstracts all SQL query logic. This script can also be run directly to execute the built-in test suite.  
-* **Usage (Testing)**: python3 query\_database.py
+* **Purpose**: Contains the `TwitterDBQuery` class with all query logic. Can be run directly to execute tests.
+* **Usage (Testing)**: `python3 query_database.py`
 
-### **4\. test\_database.py**
+### **4. test_database.py**
 
-* **Purpose**: A dedicated, standalone test suite that imports TwitterDBQuery and runs a series of validation tests against a populated database to check for connection, data presence, and core query logic.  
-* **Usage**: python3 test\_database.py
+* **Purpose**: Standalone test suite that validates database population and query logic.
+* **Usage**: `python3 test_database.py`
 
-### **5\. inspect\_feed.py**
+### **5. inspect_feed.py**
 
-* **Purpose**: A user-facing CLI tool to manually inspect a user's feed. It imports TwitterDBQuery and provides a readable, formatted output for a given user\_id or username.  
-* **Usage**: python3 inspect\_feed.py
+* **Purpose**: CLI tool to manually inspect a user's feed.
+* **Usage**: `python3 inspect_feed.py`
 
 ## **Core Query Logic (TwitterDBQuery class)**
 
-The query\_database.py script provides the main class for all data retrieval. Key methods include:
+Key methods:
 
-* get\_user\_feed(user\_id, limit=100): The primary feed reconstruction method. Returns a list of tweet dictionaries from the user's "followees" and themselves, ordered by creation date.  
-* get\_user\_feed\_until(user\_id, enddate, limit=100): Same as above, but only includes tweets created on or before enddate.  
-* get\_user\_posts(user\_id): Returns all tweets/retweets authored by a single user.  
-* get\_user\_posts\_formatted(user\_id): Returns the output of get\_user\_posts as a list of pre-formatted strings.  
-* get\_followers(user\_id), get\_followees(user\_id), get\_user\_likes(user\_id): Helper methods for retrieving specific relational data.
+* `get_user_feed(user_id, limit=100)`: Returns tweets from the user's followees and themselves, in reverse chronological order.
+* `get_user_feed_until(user_id, enddate, limit=100)`: Same as above, filtered by date.
+* `get_user_posts(user_id)`: Returns all tweets/retweets authored by a single user.
+* `get_user_posts_formatted(user_id)`: Returns formatted strings of user posts.
+* `get_followers(user_id)`, `get_followees(user_id)`, `get_user_likes(user_id)`: Helper methods for relational data.
+
+## **Differences from PostgreSQL Version**
+
+**Database:**
+- SQLite file (`LSS_twon.db`) instead of PostgreSQL server
+- No separate database creation step
+- No password/host/port configuration needed
+
+**Data Types:**
+- `INTEGER` instead of `BIGINT`
+- `TEXT` instead of `TIMESTAMPTZ` (dates stored as ISO 8601 strings)
+
+**SQL Syntax:**
+- `INSERT OR IGNORE` instead of `ON CONFLICT DO NOTHING`
+- `INSERT OR REPLACE` instead of `ON CONFLICT DO UPDATE`
+- `?` placeholders instead of `%s`
+
+**Python:**
+- `sqlite3` (built-in) instead of `psycopg2`
+- `dict_factory` instead of `RealDictCursor`
+- `executemany()` instead of `execute_values()`
+
+## **Quick Start**
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Build database
+python3 build_database.py
+
+# Populate with your data (edit file paths first)
+python3 populate_database.py
+
+# Run tests
+python3 test_database.py
+
+# Inspect feeds
+python3 inspect_feed.py
+```
+
+## **File Structure**
+
+```
+.
+├── LSS_twon.db              # SQLite database (created by build_database.py)
+├── build_database.py        # Schema creation
+├── populate_database.py     # Data import from CSVs
+├── query_database.py        # Query logic and tests
+├── test_database.py         # Standalone test suite
+├── inspect_feed.py          # CLI feed inspector
+├── requirements.txt         # Python dependencies
+└── README.md               # This file
+```

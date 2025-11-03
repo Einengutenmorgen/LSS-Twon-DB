@@ -1,37 +1,23 @@
+# populate_databse.py
 import pandas as pd
-import psycopg2
-from psycopg2 import extras
+import sqlite3
 import numpy as np
 
-def get_db_connection_details():
-    """Gets PostgreSQL connection details from the user."""
-    # print("--- Enter PostgreSQL Connection Details ---")
-    # dbname = input("Database Name: ")
-    # user = input("User: ")
-    # password = input("Password: ")
-    # host = input("Host (default: localhost): ") or "localhost"
-    # port = input("Port (default: 5432): ") or "5432"
-    DB_CONFIG = {
-    "user": "christophhau",
-    "password": "",
-    "host": "localhost",
-    "port": "5432",
-    "dbname": "LSS_twon"}
-
-    return DB_CONFIG
+def get_db_path():
+    """Returns the path to the SQLite database file."""
+    return "LSS_twon.db"
 
 def get_file_paths():
-    """Gets the paths to the three CSV files from the user."""
-    print("\n--- Enter CSV File Paths ---")
+    """Returns the paths to the CSV files."""
+    print("\n--- CSV File Paths ---")
     path_follows = '/Users/christophhau/Downloads/UserFollowees1.csv'
     path_likes = '/Users/christophhau/Downloads/users1_likes_df_JulyScrape.csv'
     path_tweets = '/Users/christophhau/Downloads/FolloweeIDs1_tweets_df_JulyPull.csv'
-
     return path_follows, path_likes, path_tweets
 
-def populate_database(conn_details, file_paths):
+def populate_database(db_path, file_paths):
     """
-    Reads data from CSV files and populates the PostgreSQL database tables.
+    Reads data from CSV files and populates the SQLite database tables.
     """
     path_follows, path_likes, path_tweets = file_paths
     conn = None
@@ -44,23 +30,24 @@ def populate_database(conn_details, file_paths):
         print("CSV files loaded successfully.")
 
         # Establish the connection
-        conn = psycopg2.connect(**conn_details)
+        conn = sqlite3.connect(db_path)
         cur = conn.cursor()
-        print("\nSuccessfully connected to the database for data population.")
+        print(f"\nConnected to database: {db_path}")
 
         # --- 1. Populate Users Table ---
         print("\nStep 1: Preparing and inserting user data...")
         users = {}
+        
         # From follows file
         for _, row in df_follows.iterrows():
             users[row['id']] = users.get(row['id'], row['username'])
             users[row['from_id']] = users.get(row['from_id'], None)
-        # From likes file (CORRECTED LOGIC)
+        
+        # From likes file
         for _, row in df_likes.iterrows():
-            # original_user_id is the one who performed the like
-            users[row['original_user_id']] = users.get(row['original_user_id'], row['screen_name']) 
-            # liked_user_id is the author of the tweet
-            users[row['liked_user_id']] = users.get(row['liked_user_id'], None) 
+            users[row['original_user_id']] = users.get(row['original_user_id'], row['screen_name'])
+            users[row['liked_user_id']] = users.get(row['liked_user_id'], None)
+        
         # From tweets file
         for _, row in df_tweets.iterrows():
             users[row['original_user_id']] = users.get(row['original_user_id'], row['screen_name'])
@@ -71,96 +58,93 @@ def populate_database(conn_details, file_paths):
             (int(uid), uname) for uid, uname in users.items() if pd.notna(uid)
         ]
 
-        insert_query = """
-        INSERT INTO Users (user_id, username) 
-        VALUES %s 
-        ON CONFLICT (user_id) 
-        DO UPDATE SET username = COALESCE(Users.username, EXCLUDED.username);
-        """
-        extras.execute_values(cur, insert_query, user_list, template=None, page_size=1000)
-        print(f"-> Processed {len(user_list)} unique user IDs. Users table is up to date.")
+        cur.executemany("""
+            INSERT OR REPLACE INTO Users (user_id, username) 
+            VALUES (?, ?)
+        """, user_list)
+        print(f"-> Inserted {len(user_list)} unique users.")
 
         # --- 2. Populate Tweets Table ---
         print("\nStep 2: Preparing and inserting tweet data...")
         all_tweets = {}
+        
         # From tweets file
         for _, row in df_tweets.iterrows():
             tweet_id = row['tweet_id']
             if pd.notna(tweet_id) and tweet_id not in all_tweets:
-                 all_tweets[tweet_id] = (
+                retweet_id = row.get('retweeted_user_ID')
+                all_tweets[tweet_id] = (
                     int(tweet_id),
                     int(row['original_user_id']),
                     row['full_text'],
-                    pd.to_datetime(row['created_at'], errors='coerce'),
-                    pd.to_numeric(row.get('retweeted_user_ID'), errors='coerce'),
-                    pd.to_datetime(row['collected_at'], errors='coerce')
+                    pd.to_datetime(row['created_at'], errors='coerce').isoformat() if pd.notna(row['created_at']) else None,
+                    int(retweet_id) if pd.notna(retweet_id) else None,
+                    pd.to_datetime(row['collected_at'], errors='coerce').isoformat() if pd.notna(row['collected_at']) else None
                 )
-        # From likes file (CORRECTED LOGIC - author is liked_user_id)
+        
+        # From likes file
         for _, row in df_likes.iterrows():
             tweet_id = row['tweet_id']
             if pd.notna(tweet_id) and tweet_id not in all_tweets:
                 all_tweets[tweet_id] = (
                     int(tweet_id),
-                    int(row['liked_user_id']), # Author of the liked tweet
+                    int(row['liked_user_id']),
                     row['full_text'],
-                    pd.to_datetime(row['created_at'], errors='coerce'),
-                    np.nan, # No retweet info in likes file
-                    pd.to_datetime(row['collected_at'], errors='coerce')
+                    pd.to_datetime(row['created_at'], errors='coerce').isoformat() if pd.notna(row['created_at']) else None,
+                    None,
+                    pd.to_datetime(row['collected_at'], errors='coerce').isoformat() if pd.notna(row['collected_at']) else None
                 )
 
-        tweet_list = [
-            (t[0], t[1], t[2], t[3], None if pd.isna(t[4]) else int(t[4]), t[5])
-            for t in all_tweets.values()
-            if pd.notna(t[0]) and pd.notna(t[1])
-        ]
+        tweet_list = [t for t in all_tweets.values() if t[0] and t[1]]
 
-        insert_query = """
-        INSERT INTO Tweets (tweet_id, author_id, full_text, created_at, retweet_of_user_id, collected_at) 
-        VALUES %s ON CONFLICT (tweet_id) DO NOTHING;
-        """
-        extras.execute_values(cur, insert_query, tweet_list, template=None, page_size=1000)
-        print(f"-> Processed {len(tweet_list)} unique tweets. Tweets table is up to date.")
-
+        cur.executemany("""
+            INSERT OR IGNORE INTO Tweets 
+            (tweet_id, author_id, full_text, created_at, retweet_of_user_id, collected_at) 
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, tweet_list)
+        print(f"-> Inserted {len(tweet_list)} unique tweets.")
 
         # --- 3. Populate Follows Table ---
         print("\nStep 3: Preparing and inserting follows data...")
         follows_list = df_follows[['from_id', 'id']].dropna().astype(int).values.tolist()
-        insert_query = "INSERT INTO Follows (follower_id, followee_id) VALUES %s ON CONFLICT (follower_id, followee_id) DO NOTHING;"
-        extras.execute_values(cur, insert_query, follows_list, template=None, page_size=1000)
-        print(f"-> Processed {len(follows_list)} follow relationships. Follows table is up to date.")
+        
+        cur.executemany("""
+            INSERT OR IGNORE INTO Follows (follower_id, followee_id) 
+            VALUES (?, ?)
+        """, follows_list)
+        print(f"-> Inserted {len(follows_list)} follow relationships.")
 
         # --- 4. Populate Likes Table ---
         print("\nStep 4: Preparing and inserting likes data...")
-        # (CORRECTED LOGIC - user who likes is original_user_id)
         df_likes_clean = df_likes[['original_user_id', 'tweet_id', 'collected_at']].dropna()
-        df_likes_clean.rename(columns={'original_user_id': 'user_id'}, inplace=True)
-        df_likes_clean['user_id'] = df_likes_clean['user_id'].astype(int)
+        df_likes_clean['original_user_id'] = df_likes_clean['original_user_id'].astype(int)
         df_likes_clean['tweet_id'] = df_likes_clean['tweet_id'].astype(int)
-        df_likes_clean['collected_at'] = pd.to_datetime(df_likes_clean['collected_at'], errors='coerce')
+        df_likes_clean['collected_at'] = pd.to_datetime(df_likes_clean['collected_at'], errors='coerce').apply(
+            lambda x: x.isoformat() if pd.notna(x) else None
+        )
         
-        likes_list = [tuple(x) for x in df_likes_clean.to_numpy()]
+        likes_list = df_likes_clean.values.tolist()
 
-        insert_query = "INSERT INTO Likes (user_id, tweet_id, collected_at) VALUES %s ON CONFLICT (user_id, tweet_id) DO NOTHING;"
-        extras.execute_values(cur, insert_query, likes_list, template=None, page_size=1000)
-        print(f"-> Processed {len(likes_list)} like relationships. Likes table is up to date.")
+        cur.executemany("""
+            INSERT OR IGNORE INTO Likes (user_id, tweet_id, collected_at) 
+            VALUES (?, ?, ?)
+        """, likes_list)
+        print(f"-> Inserted {len(likes_list)} like relationships.")
 
         # Commit all transactions
         conn.commit()
-        print("\nAll data has been successfully populated.")
+        print("\nAll data successfully populated.")
 
-    except (psycopg2.Error, FileNotFoundError) as e:
+    except (sqlite3.Error, FileNotFoundError) as e:
         print(f"\nAn error occurred: {e}")
         if conn:
             conn.rollback()
     finally:
         if conn:
-            cur.close()
             conn.close()
             print("Database connection closed.")
 
-
 if __name__ == "__main__":
-    conn_details = get_db_connection_details()
+    db_path = get_db_path()
     file_paths = get_file_paths()
-    populate_database(conn_details, file_paths)
-
+    populate_database(db_path, file_paths)

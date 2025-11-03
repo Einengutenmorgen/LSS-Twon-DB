@@ -18,40 +18,42 @@ This project contains a set of Python scripts to build, populate, and query a Po
 
 ## **Database Schema**
 
-### **ER Diagram (Mermaid)**
+### **ER Diagram**
 
-erDiagram  
-    Users {  
-        BIGINT user\_id PK  
-        TEXT username  
+```mermaid
+erDiagram
+    Users {
+        BIGINT user_id PK
+        TEXT username
     }
 
-    Tweets {  
-        BIGINT tweet\_id PK  
-        BIGINT author\_id FK  
-        TEXT full\_text  
-        TIMESTAMPTZ created\_at  
-        BIGINT retweet\_of\_user\_id FK  
-        TIMESTAMPTZ collected\_at  
+    Tweets {
+        BIGINT tweet_id PK
+        BIGINT author_id FK
+        TEXT full_text
+        TIMESTAMPTZ created_at
+        BIGINT retweet_of_user_id FK
+        TIMESTAMPTZ collected_at
     }
 
-    Follows {  
-        BIGINT follower\_id PK, FK  
-        BIGINT followee\_id PK, FK  
+    Follows {
+        BIGINT follower_id PK, FK
+        BIGINT followee_id PK, FK
     }
 
-    Likes {  
-        BIGINT user\_id PK, FK  
-        BIGINT tweet\_id PK, FK  
-        TIMESTAMPTZ collected\_at  
+    Likes {
+        BIGINT user_id PK, FK
+        BIGINT tweet_id PK, FK
+        TIMESTAMPTZ collected_at
     }
 
-    Users ||--o{ Tweets : "is author of"  
-    Users ||--o{ Tweets : "is retweeted by"  
-    Users ||--|{ Follows : "follows (as follower)"  
-    Users ||--|{ Follows : "is followed by (as followee)"  
-    Users ||--|{ Likes : "likes"  
+    Users ||--o{ Tweets : "is author of"
+    Users ||--o{ Tweets : "is retweeted by"
+    Users ||--|{ Follows : "follows (as follower)"
+    Users ||--|{ Follows : "is followed by (as followee)"
+    Users ||--|{ Likes : "likes"
     Tweets ||--|{ Likes : "is liked by"
+```
 
 ### **Table Descriptions**
 

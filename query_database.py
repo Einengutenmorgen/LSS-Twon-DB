@@ -238,6 +238,37 @@ class TwitterDBQuery:
             cur.execute(query, (user_id,))
             return cur.fetchall()
 
+    def get_all_users(self):
+        """Return a list of all users in the database."""
+        query = "SELECT user_id, username FROM Users ORDER BY username;"
+        with self._get_cursor() as cur:
+            cur.execute(query)
+            return cur.fetchall()
+
+    def get_all_posts(self):
+        """Return every post with its author information."""
+        query = """
+        SELECT
+            t.tweet_id,
+            t.author_id,
+            u.username AS author_username,
+            t.full_text,
+            t.created_at,
+            t.retweet_of_user_id,
+            ru.username AS retweet_of_username
+        FROM
+            Tweets t
+        JOIN
+            Users u ON t.author_id = u.user_id
+        LEFT JOIN
+            Users ru ON t.retweet_of_user_id = ru.user_id
+        ORDER BY
+            t.created_at ASC;
+        """
+        with self._get_cursor() as cur:
+            cur.execute(query)
+            return cur.fetchall()
+
     @staticmethod
     def _format_post(post):
         """

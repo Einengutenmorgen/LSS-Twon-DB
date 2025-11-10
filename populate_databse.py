@@ -32,6 +32,11 @@ def populate_database(db_path, file_paths):
         # Establish the connection
         conn = sqlite3.connect(db_path)
         cur = conn.cursor()
+        cur.execute("PRAGMA journal_mode = WAL;")
+        cur.execute("PRAGMA synchronous = OFF;")
+        cur.execute("PRAGMA temp_store = MEMORY;")
+        cur.execute("PRAGMA cache_size = 100000;")
+
         print(f"\nConnected to database: {db_path}")
 
         # --- 1. Populate Users Table ---
@@ -145,6 +150,10 @@ def populate_database(db_path, file_paths):
             print("Database connection closed.")
 
 if __name__ == "__main__":
+    start_TIME = pd.Timestamp.now()
+    print(f"\n--- Database Population Started at {start_TIME} ---")
     db_path = get_db_path()
     file_paths = get_file_paths()
     populate_database(db_path, file_paths)
+    print(f"\n--- Database Population Ended at {pd.Timestamp.now()} ---")
+    print(f"Total Duration: {pd.Timestamp.now() - start_TIME}")

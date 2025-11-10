@@ -5,3 +5,5 @@ data/
 *.pyc
 *.db
 *.db-journal
+*.db-shm
+*.db-wal
